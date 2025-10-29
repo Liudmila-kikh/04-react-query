@@ -1,60 +1,76 @@
-import SearchBar from "../SearchBar/SearchBar.tsx";
-import type { Movie } from "../../types/movie.ts";
-import { fetchMovies } from "../../services/movieService.ts";
-import MovieGrid from "../MovieGrid/MovieGrid.tsx";
-import { useState } from "react";
-import Loader from "../Loader/Loader.tsx";
-import MovieModal from "../MovieModal/MovieModal.tsx";
-import toast, { Toaster } from "react-hot-toast";
-import ErrorMessage from "../ErrorMessage/ErrorMessage.tsx";
+import css from './App.module.css';
+import { useEffect, useState } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { Toaster, toast } from 'react-hot-toast';
+import { fetchMovies } from '../../services/movieService';
+import { type Movie } from '../../types/movie';
+import SearchBar from '../SearchBar/SearchBar';
+import ReactPaginate from 'react-paginate';
+import MovieGrid from '../MovieGrid/MovieGrid';
+import Loader from '../Loader/Loader';
+import ErrorMessage from '../ErrorMessage/ErrorMessage';
+import MovieModal from '../MovieModal/MovieModal';
 
 export default function App() {
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [errorMessageState, setErrorMessageState] = useState<boolean>(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const handleSearch = async (query: string): Promise<void> => {
-    setIsLoading(true);
-    try {
-      setMovies([]);
-      setErrorMessageState(false);
-      const myMovies = await fetchMovies(query);
-      if (myMovies.length === 0) {
-        toast.error("No movies found for your request.");
-        setErrorMessageState(true);
-      }
-      setMovies(myMovies);
-    } catch {
-      toast.error("There was an error, please try again...");
-      setErrorMessageState(true);
-    } finally {
-      setIsLoading(false);
-    }
+  const { data, isLoading, isError, isSuccess } = useQuery({
+    queryKey: ['movies', query, page],
+    queryFn: () => fetchMovies(query, page),
+    enabled: query !== '',
+    placeholderData: keepPreviousData,
+    
+  });
+
+  const totalPages = data?.total_pages ?? 0;
+
+  useEffect(() => {
+  if (isSuccess && data.results.length === 0) {
+    toast.error('No movies found for your request.');
+  }
+  }, [data])
+
+  const handleSearch = async (query: string) => {
+    setQuery(query);
+    setPage(1);
   };
 
-  const handleSelectedMovie = (movie: Movie): void => {
+  const openModal = (movie: Movie) => {
     setSelectedMovie(movie);
+    setIsModalOpen(true);
   };
 
-  const closeModal = (): void => {
+  const closeModal = () => {
     setSelectedMovie(null);
+    setIsModalOpen(false);
   };
 
   return (
-    <>
-      <Toaster position="top-center" />
+    <div className={css.app}>
+      <Toaster />
       <SearchBar onSubmit={handleSearch} />
-      {isLoading ? (
-        <Loader />
-      ) : (
-        <MovieGrid movies={movies} onSelect={handleSelectedMovie} />
+      {isSuccess && totalPages > 1 && (
+        <ReactPaginate
+          pageCount={totalPages}
+          pageRangeDisplayed={5}
+          marginPagesDisplayed={1}
+          onPageChange={({ selected }) => setPage(selected + 1)}
+          forcePage={page - 1}
+          containerClassName={css.pagination}
+          activeClassName={css.active}
+          nextLabel="→"
+          previousLabel="←"
+        />
       )}
-      {/* <MovieModal movie={selectedMovie} onClose={closeModal} /> */}
-      {selectedMovie && (
-        <MovieModal movie={selectedMovie} onClose={closeModal} />
+      {isLoading && <Loader />}
+      {isError && <ErrorMessage />}
+      {data && data.results.length > 0 && (
+        <MovieGrid movies={data.results} onSelect={openModal} />
       )}
-      {errorMessageState && <ErrorMessage />}
-    </>
+      {isModalOpen && <MovieModal movie={selectedMovie} onClose={closeModal} />}
+    </div>
   );
 }
